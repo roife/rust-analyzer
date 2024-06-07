@@ -20,6 +20,7 @@ const HOVER_BASE_CONFIG: HoverConfig = HoverConfig {
     max_trait_assoc_items_count: None,
     max_fields_count: Some(5),
     max_enum_variants_count: Some(5),
+    show_container_bounds: true,
 };
 
 fn check_hover_no_result(ra_fixture: &str) {
@@ -111,6 +112,32 @@ fn check_assoc_count(count: usize, ra_fixture: &str, expect: Expect) {
             &HoverConfig {
                 links_in_hover: true,
                 max_trait_assoc_items_count: Some(count),
+                ..HOVER_BASE_CONFIG
+            },
+            FileRange { file_id: position.file_id, range: TextRange::empty(position.offset) },
+        )
+        .unwrap()
+        .unwrap();
+
+    let content = analysis.db.file_text(position.file_id);
+    let hovered_element = &content[hover.range];
+
+    let actual = format!("*{hovered_element}*\n{}\n", hover.info.markup);
+    expect.assert_eq(&actual)
+}
+
+#[track_caller]
+fn check_hover_container_bounds(
+    show_container_bounds: bool,
+    ra_fixture: &str,
+    expect: Expect,
+) {
+    let (analysis, position) = fixture::position(ra_fixture);
+    let hover = analysis
+        .hover(
+            &HoverConfig {
+                links_in_hover: true,
+                show_container_bounds,
                 ..HOVER_BASE_CONFIG
             },
             FileRange { file_id: position.file_id, range: TextRange::empty(position.offset) },
@@ -1745,6 +1772,7 @@ fn main() { let foo_test = wrapper::Thing::new$0(); }
             ```
 
             ```rust
+            impl Thing
             pub fn new() -> Thing
             ```
         "#]],
@@ -2848,6 +2876,7 @@ fn foo() { let bar = Bar; bar.fo$0o(); }
             ```
 
             ```rust
+            impl Bar
             fn foo(&self)
             ```
 
@@ -2886,6 +2915,7 @@ fn foo() { let bar = Bar; bar.fo$0o(); }
             ```
 
             ```rust
+            impl Bar
             fn foo(&self)
             ```
 
@@ -4066,6 +4096,7 @@ fn main() { let foo_test = name_with_dashes::wrapper::Thing::new$0(); }
             ```
 
             ```rust
+            impl Thing
             pub fn new() -> Thing
             ```
         "#]],
@@ -7005,6 +7036,7 @@ impl T for () {
             ```
 
             ```rust
+            impl T for ()
             fn func()
             ```
 
@@ -7219,6 +7251,7 @@ fn f() {
             ```
 
             ```rust
+            impl Deref for Struct
             fn deref(&self) -> &Self::Target
             ```
         "#]],
@@ -7455,6 +7488,7 @@ fn test() {
             ```
 
             ```rust
+            impl S
             pub(crate) fn foo()
             ```
         "#]],
@@ -7484,6 +7518,7 @@ fn test() {
             ```
 
             ```rust
+            impl S
             pub(crate) fn foo()
             ```
         "#]],
@@ -7514,6 +7549,7 @@ mod m {
             ```
 
             ```rust
+            impl S
             pub(super) fn foo()
             ```
         "#]],
@@ -7784,6 +7820,7 @@ fn main() {
             ```
 
             ```rust
+            impl S
             fn foo<T>(&self, t: T)
             ```
         "#]],
@@ -8470,4 +8507,282 @@ fn main(a$0: T) {}
             ```
         "#]],
     );
+}
+
+#[test]
+fn hover_show_container_bounds() {
+    check_hover_container_bounds(true,
+                                 r#"
+fn f(a: f64) {}
+
+fn main() {
+    let foo = f$0(1.2);
+}"#,
+                                 expect![[r#"
+                                     *f*
+
+                                     ```rust
+                                     test
+                                     ```
+
+                                     ```rust
+                                     fn f(a: f64)
+                                     ```
+                                 "#]]);
+
+    check_hover_container_bounds(true,
+                                 r#"
+struct Foo<T>(T);
+
+impl<T: Eq> Foo<T> {
+    fn new(t: T) -> Self {
+        Self(t)
+    }
+}
+
+fn main() {
+    let foo = Foo::new$0(1.2);
+}"#,
+                                 expect![[r#"
+                                     *new*
+
+                                     ```rust
+                                     test::Foo
+                                     ```
+
+                                     ```rust
+                                     impl<T> Foo<T>
+                                     fn new(t: T) -> Self
+                                     where
+                                         // Bounds from impl:
+                                         T: Eq,
+                                     ```
+                                 "#]]);
+
+        check_hover_container_bounds(true,
+                                     r#"
+struct Foo<T>(T);
+
+trait Trait<T: Eq> {
+    fn foo(&self, a:T);
+}
+
+impl<A: Eq> Foo<A> {
+    fn new<B: Ord>(t: A, c: B) -> Self {
+        Self(t)
+    }
+}
+
+fn main() {
+    let foo = Foo::new$0(1.2, 1);
+}
+"#,
+                                     expect![[r#"
+                                         *new*
+
+                                         ```rust
+                                         test::Foo
+                                         ```
+
+                                         ```rust
+                                         impl<A> Foo<A>
+                                         fn new<B>(t: A, c: B) -> Self
+                                         where
+                                             B: Ord,
+                                             // Bounds from impl:
+                                             A: Eq,
+                                         ```
+                                     "#]]);
+
+            check_hover_container_bounds(true,
+                                     r#"
+struct Foo<T>(T);
+
+trait Trait<T: Eq> {
+    fn foo(&self, a:T);
+}
+
+impl<A> Foo<A> {
+    fn new<B: Ord>(t: A, c: B) -> Self {
+        Self(t)
+    }
+}
+
+fn main() {
+    let foo = Foo::new$0(1.2, 1);
+}
+"#,
+                                 expect![[r#"
+                                     *new*
+
+                                     ```rust
+                                     test::Foo
+                                     ```
+
+                                     ```rust
+                                     impl<A> Foo<A>
+                                     fn new<B>(t: A, c: B) -> Self
+                                     where
+                                         B: Ord,
+                                     ```
+                                 "#]]);
+
+    check_hover_container_bounds(true,
+                                 r#"
+trait Trait<A: Eq> {
+    fn f1<B>(&self, a: A, b: B);
+
+    fn f2<C: Ord>(&self, a: A, b: C) {
+        self.f1$0(a, b);
+    }
+}
+"#,
+                                 expect![[r#"
+                                     *f1*
+
+                                     ```rust
+                                     test::Trait
+                                     ```
+
+                                     ```rust
+                                     trait Trait<A>
+                                     fn f1<B>(&self, a: A, b: B)
+                                     where
+                                         // Bounds from trait:
+                                         A: Eq,
+                                     ```
+                                 "#]]);
+}
+
+#[test]
+fn hover_do_not_show_container_bounds() {
+    check_hover_container_bounds(false,
+                                 r#"
+fn f(a: f64) {}
+
+fn main() {
+    let foo = f$0(1.2);
+}"#,
+                                 expect![[r#"
+                                     *f*
+
+                                     ```rust
+                                     test
+                                     ```
+
+                                     ```rust
+                                     fn f(a: f64)
+                                     ```
+                                 "#]]);
+
+    check_hover_container_bounds(false,
+                                 r#"
+struct Foo<T>(T);
+
+impl<T: Eq> Foo<T> {
+    fn new(t: T) -> Self {
+        Self(t)
+    }
+}
+
+fn main() {
+    let foo = Foo::new$0(1.2);
+}"#,
+                                 expect![[r#"
+                                     *new*
+
+                                     ```rust
+                                     test::Foo
+                                     ```
+
+                                     ```rust
+                                     fn new(t: T) -> Self
+                                     ```
+                                 "#]]);
+
+        check_hover_container_bounds(false,
+                                     r#"
+struct Foo<T>(T);
+
+trait Trait<T: Eq> {
+    fn foo(&self, a:T);
+}
+
+impl<A: Eq> Foo<A> {
+    fn new<B: Ord>(t: A, c: B) -> Self {
+        Self(t)
+    }
+}
+
+fn main() {
+    let foo = Foo::new$0(1.2, 1);
+}
+"#,
+                                     expect![[r#"
+                                         *new*
+
+                                         ```rust
+                                         test::Foo
+                                         ```
+
+                                         ```rust
+                                         fn new<B>(t: A, c: B) -> Self
+                                         where
+                                             B: Ord,
+                                         ```
+                                     "#]]);
+
+            check_hover_container_bounds(false,
+                                     r#"
+struct Foo<T>(T);
+
+trait Trait<T: Eq> {
+    fn foo(&self, a:T);
+}
+
+impl<A> Foo<A> {
+    fn new<B: Ord>(t: A, c: B) -> Self {
+        Self(t)
+    }
+}
+
+fn main() {
+    let foo = Foo::new$0(1.2, 1);
+}
+"#,
+                                 expect![[r#"
+                                     *new*
+
+                                     ```rust
+                                     test::Foo
+                                     ```
+
+                                     ```rust
+                                     fn new<B>(t: A, c: B) -> Self
+                                     where
+                                         B: Ord,
+                                     ```
+                                 "#]]);
+
+        check_hover_container_bounds(false,
+                                 r#"
+trait Trait<A: Eq> {
+    fn f1<B>(&self, a: A, b: B);
+
+    fn f2<C: Ord>(&self, a: A, b: C) {
+        self.f1$0(a, b);
+    }
+}
+"#,
+                                 expect![[r#"
+                                     *f1*
+
+                                     ```rust
+                                     test::Trait
+                                     ```
+
+                                     ```rust
+                                     fn f1<B>(&self, a: A, b: B)
+                                     ```
+                                 "#]]);
 }

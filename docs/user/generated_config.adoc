@@ -539,6 +539,11 @@ How to render the offset information in a memory layout hover.
 --
 How to render the size information in a memory layout hover.
 --
+[[rust-analyzer.hover.show.containerBounds]]rust-analyzer.hover.show.containerBounds (default: `true`)::
++
+--
+Whether to show type bounds from containers for functions.
+--
 [[rust-analyzer.hover.show.enumVariants]]rust-analyzer.hover.show.enumVariants (default: `5`)::
 +
 --
