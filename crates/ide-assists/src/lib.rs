@@ -116,6 +116,7 @@ mod handlers {
     mod apply_demorgan;
     mod auto_import;
     mod bind_unused_param;
+    mod case_splitting;
     mod change_visibility;
     mod convert_bool_then;
     mod convert_bool_to_enum;
@@ -358,6 +359,7 @@ mod handlers {
             replace_turbofish_with_explicit_type::replace_turbofish_with_explicit_type,
             sort_items::sort_items,
             split_import::split_import,
+            case_splitting::split_match_arm,
             term_search::term_search,
             toggle_async_sugar::desugar_async_into_impl_future,
             toggle_async_sugar::sugar_impl_future_into_async,
